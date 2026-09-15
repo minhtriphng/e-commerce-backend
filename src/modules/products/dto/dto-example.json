@@ -1,0 +1,34 @@
+{
+  "name": "Áo thun Nike Sportswear",
+  "description": "Áo thun thể thao chất liệu cotton cao cấp",
+  "thumbnailUrl": "https://cdn.example.com/ao-nike-chinh.jpg",
+  "galleryUrls": [
+    "https://cdn.example.com/ao-nike-1.jpg",
+    "https://cdn.example.com/ao-nike-2.jpg",
+    "https://cdn.example.com/ao-nike-3.jpg"
+  ],
+  "oldPrice": 500000,
+  "newPrice": 350000,
+  "category": {
+    "id": "cat_123",
+    "name": "Áo thun",
+    "slug": "ao-thun"
+  },
+  "variants": [
+    {
+      "attributes": { "size": "S", "color": "Đen" },
+      "price": 350000,
+      "stock": 10
+    },
+    {
+      "attributes": { "size": "M", "color": "Đen" },
+      "price": 350000,
+      "stock": 15
+    },
+    {
+      "attributes": { "size": "L", "color": "Trắng" },
+      "price": 350000,
+      "stock": 8
+    }
+  ]
+}
