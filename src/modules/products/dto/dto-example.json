@@ -10,7 +10,6 @@
   "oldPrice": 500000,
   "newPrice": 350000,
   "category": {
-    "id": "cat_123",
     "name": "Áo thun",
     "slug": "ao-thun"
   },

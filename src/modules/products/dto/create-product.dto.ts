@@ -37,7 +37,7 @@ class CreateProductVariantDto {
 }
 
 export class CreateProductDto {
-  @IsAlphaOnly()
+  @IsString()
   @IsNotEmpty()
   name!: string;
 

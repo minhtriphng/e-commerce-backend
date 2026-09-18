@@ -1,7 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Product } from './entities/product.entity';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { ProductVariant } from './entities/product-variant.entity';
 import { Category } from './entities/category.entity';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -15,35 +15,40 @@ export class ProductsService {
     private variantRepo: Repository<ProductVariant>,
     @InjectRepository(Category)
     private categoryRepo: Repository<Category>,
+    private readonly dataSource: DataSource,
   ) {}
 
   async create(createProductDto: CreateProductDto) {
-    const { variants, category, ...productData } = createProductDto;
-    // Tạo product mới
-    const product = this.productRepo.create({
-      ...productData,
-      oldPrice: productData.oldPrice || null,
-    });
+    return await this.dataSource.transaction(
+      async (transactionalEntityManager) => {
+        const { variants, category, ...productData } = createProductDto;
+        // Tạo product mới
+        const product = transactionalEntityManager.create(Product, {
+          ...productData,
+          oldPrice: productData.oldPrice || null,
+        });
 
-    // Tạo variants
-    const variantEntities = variants.map((variantDto) => {
-      return this.variantRepo.create({
-        attributes: variantDto.attributes,
-        price: variantDto.price,
-        stock: variantDto.stock,
-        // product: product,
-      });
-    });
-    product.variants = variantEntities;
+        // Tạo variants
+        const variantEntities = variants.map((variantDto) => {
+          return transactionalEntityManager.create(ProductVariant, {
+            attributes: variantDto.attributes,
+            price: variantDto.price,
+            stock: variantDto.stock,
+            // product: product,
+          });
+        });
+        product.variants = variantEntities;
 
-    const categoryEntities = await this.categoryRepo.create({
-      name: category.name,
-      slug: category.slug,
-    });
+        const categoryEntities = transactionalEntityManager.create(Category, {
+          name: category.name,
+          slug: category.slug,
+        });
 
-    product.category = categoryEntities;
-    // Lưu tất cả vào database
-    return await this.productRepo.save(product);
+        product.category = categoryEntities;
+        // Lưu tất cả vào database
+        return await transactionalEntityManager.save(product);
+      },
+    );
   }
 
   // async findAll(){

@@ -11,6 +11,7 @@ import { GlobalExceptionFilter } from './filters/exception.filter';
 import { ProductsModule } from './modules/products/products.module';
 import { UsersModule } from './modules/users/users.module';
 import { RedisModule } from './modules/redis/redis.module';
+import { OrdersModule } from './modules/orders/orders.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { RedisModule } from './modules/redis/redis.module';
     ProductsModule,
     UsersModule,
     RedisModule,
+    OrdersModule,
   ],
   controllers: [AppController],
   providers: [

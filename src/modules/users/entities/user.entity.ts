@@ -9,6 +9,7 @@ import { Session } from './session.entity';
 import { BaseEntity } from '../../../common/entities/base.entity';
 import { UserRole } from '../../../common/enums/user.enum';
 import { Provider } from '../../../common/enums/provider.enum';
+import { Order } from '../../orders/entities/order.entity';
 
 @Entity('users')
 export class User extends BaseEntity {
