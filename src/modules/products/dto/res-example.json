@@ -1,0 +1,14 @@
+{
+  "data": [
+    { "id": 11, "name": "Sản phẩm A" },
+    { "id": 12, "name": "Sản phẩm B" },
+    { "id": 20, "name": "Sản phẩm K" }
+  ],
+  "paging": {
+    "limit": 10,
+    "next_cursor": 20,
+    "prev_cursor": 11,
+    "has_next": true,
+    "has_prev": true
+  }
+}

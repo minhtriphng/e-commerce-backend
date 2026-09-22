@@ -6,7 +6,7 @@ import { BaseEntity } from '../../../common/entities/base.entity';
 @Entity('product_variants')
 export class ProductVariant extends BaseEntity {
   @ManyToOne(() => Product, (product) => product.variants, {
-    onDelete: 'CASCADE',
+    onDelete: 'CASCADE', //xóa product là xóa variants
   })
   @JoinColumn({ name: 'product_id' })
   product!: Product;
