@@ -7,12 +7,17 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { ProductVariant } from './product-variant.entity';
 import { Category } from './category.entity';
 import { BaseEntity } from '../../../common/entities/base.entity';
 
 @Entity('products')
+@Index(
+  'idx_products_full_name_trgm',
+  ['name'], // Hoặc dùng biểu thức SQL tùy ORM hỗ trợ
+)
 export class Product extends BaseEntity {
   @Column({ name: 'name', type: 'varchar', length: 100 })
   name!: string; // Tên sản phẩm
@@ -51,9 +56,7 @@ export class Product extends BaseEntity {
   })
   newPrice!: number; // Giá mới (giá hiện tại)
 
-  @ManyToOne(() => Category, (category) => category.products, {
-    cascade: true, //lưu product là lưu category
-  })
+  @ManyToOne(() => Category, (category) => category.products)
   @JoinColumn({ name: 'category_id' })
   category!: Category; // Danh mục
 
@@ -68,7 +71,7 @@ export class Product extends BaseEntity {
   updatedAt!: Date;
 
   @OneToMany(() => ProductVariant, (variant) => variant.product, {
-    cascade: true,
+    cascade: true, //lưu product là lưu variant
   })
   variants!: ProductVariant[]; // Các biến thể
 }

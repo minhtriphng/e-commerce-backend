@@ -9,10 +9,7 @@
   ],
   "oldPrice": 500000,
   "newPrice": 350000,
-  "category": {
-    "name": "Áo thun",
-    "slug": "ao-thun"
-  },
+  "category": "1234",
   "variants": [
     {
       "attributes": { "size": "S", "color": "Đen" },

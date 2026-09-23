@@ -14,7 +14,7 @@ export class RedisService {
     });
   }
 
-  async set(key: string, value: string, ttl: number) {
+  async set(key: string, value: any, ttl: number) {
     return this.redis.set(key, value, 'EX', ttl);
   }
 

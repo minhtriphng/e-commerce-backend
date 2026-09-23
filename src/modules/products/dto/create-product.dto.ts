@@ -14,13 +14,9 @@ import { Type } from 'class-transformer';
 import { IsAlphaOnly } from '../../../common/decorators/is-alpha.decorator';
 
 class CreateCategoryDto {
-  @IsAlphaOnly()
+  @IsString()
   @IsNotEmpty()
-  name!: string;
-
-  @IsAlphaOnly()
-  @IsNotEmpty()
-  slug!: string;
+  id!: string;
 }
 
 class CreateProductVariantDto {

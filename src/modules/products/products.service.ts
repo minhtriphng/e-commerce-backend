@@ -6,6 +6,7 @@ import { ProductVariant } from './entities/product-variant.entity';
 import { Category } from './entities/category.entity';
 import { CreateProductDto } from './dto/create-product.dto';
 import { FilterProductDto } from './dto/filter-product.dto';
+import { RedisService } from '../redis/redis.service';
 
 @Injectable()
 export class ProductsService {
@@ -17,7 +18,12 @@ export class ProductsService {
     @InjectRepository(Category)
     private categoryRepo: Repository<Category>,
     private readonly dataSource: DataSource,
+    private readonly redisService: RedisService,
   ) {}
+  async createCategory(categoryName: string) {
+    const category = this.categoryRepo.create({ name: categoryName });
+    await this.categoryRepo.save(category);
+  }
 
   async createProduct(createProductDto: CreateProductDto) {
     return await this.dataSource.transaction(
@@ -26,6 +32,7 @@ export class ProductsService {
         // Tạo product mới
         const product = transactionalEntityManager.create(Product, {
           ...productData,
+          category: category,
           oldPrice: productData.oldPrice || null,
         });
 
@@ -39,13 +46,6 @@ export class ProductsService {
           });
         });
         product.variants = variantEntities;
-
-        const categoryEntities = transactionalEntityManager.create(Category, {
-          name: category.name,
-          slug: category.slug,
-        });
-
-        product.category = categoryEntities;
         // Lưu tất cả vào database
         return await transactionalEntityManager.save(product);
       },
@@ -139,41 +139,48 @@ export class ProductsService {
     //   AND variant.attributes->>'ram' = '8GB';
   }
 
-  // async getProducts(paginationData: PaginationProductDto) {
-  //   let query = this.productRepo.createQueryBuilder('product');
-  //   let params = [];
+  async searchByName(keyword: string) {
+    // Nếu keyword rỗng thì trả về mảng rỗng hoặc danh sách mặc định
+    if (!keyword || keyword.trim() === '') {
+      return [];
+    }
 
-  //   // 1. Trường hợp bấm Next
-  //   if (paginationData.after) {
-  //     query += ' WHERE id > ? ORDER BY id ASC LIMIT ?';
-  //     params = [after, limit];
-  //   }
-  //   // 2. Trường hợp bấm Prev
-  //   else if (before) {
-  //     query = `
-  //     SELECT * FROM (
-  //       SELECT * FROM products WHERE id < ? ORDER BY id DESC LIMIT ?
-  //     ) AS temp ORDER BY id ASC
-  //   `;
-  //     params = [before, limit];
-  //   }
-  //   // 3. Mặc định trang đầu
-  //   else {
-  //     query += ' ORDER BY id ASC LIMIT ?';
-  //     params = [limit];
-  //   }
+    // Làm sạch từ khóa (xóa khoảng trắng thừa)
+    const cleanKeyword = keyword.trim();
 
-  //   const data = await db.query(query, params);
+    // Dùng QueryBuilder để viết câu SQL custom
+    const products = await this.productRepo
+      .createQueryBuilder('product')
+      .where(
+        'lower(immutable_unaccent(product.name)) LIKE lower(immutable_unaccent(:keyword))',
+        {
+          keyword: `%${cleanKeyword}%`, // Thêm dấu % để tìm chứa chuỗi
+        },
+      )
+      .take(10) // Tương đương LIMIT 10 để tránh crash API nếu ra quá nhiều kết quả
+      .getMany();
 
-  //   // Mẹo kiểm tra has_next / has_prev: Query dư ra 1 item (limit + 1)
-  //   // Nếu nhận được (limit + 1) item nghĩa là vẫn còn trang tiếp theo!
+    return products;
+  }
 
-  //   return {
-  //     data: data,
-  //     paging: {
-  //       next_cursor: data.length > 0 ? data[data.length - 1].id : null,
-  //       prev_cursor: data.length > 0 ? data[0].id : null,
-  //     },
-  //   };
-  // }
+  async getProductDetail(id: string) {
+    const cacheKey = `product:detail:${id}`;
+
+    // 1. Kiểm tra Redis
+    const cachedData = await this.redisService.get(cacheKey);
+    if (cachedData) return JSON.parse(cachedData);
+
+    // 2. Query DB lấy cả Product và mảng Variants đi kèm
+    const product = await this.productRepo.findOne({
+      where: { id },
+      relations: { variants: true }, // Lấy luôn danh sách variant
+    });
+
+    if (!product) throw new NotFoundException('Không tìm thấy sản phẩm!');
+
+    // 3. Cache nguyên object bao gồm full variants vào Redis (1 giờ)
+    await this.redisService.set(cacheKey, JSON.stringify(product), 3600);
+
+    return product;
+  }
 }

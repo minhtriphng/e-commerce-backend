@@ -6,6 +6,11 @@ import { FilterProductDto } from './dto/filter-product.dto';
 @Controller('products')
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
+  @Post('category')
+  async createCategory(@Body() body: { name: string }) {
+    return await this.productsService.createCategory(body.name);
+  }
+
   @Post()
   async createProduct(@Body() createProductDto: CreateProductDto) {
     return await this.productsService.createProduct(createProductDto);
@@ -15,12 +20,14 @@ export class ProductsController {
   async filterProducts(@Query() filterDto: FilterProductDto) {
     return this.productsService.filterProducts(filterDto);
   }
-  // @Get()
-  // async findAll() {
-  //   return await this.productsService.findAll();
-  // }
-  // @Get()
-  // async findQuery(@Query() query: any) {
-  //   return await this.productsService.findQuery(query);
-  // }
+
+  @Get('search')
+  async search(@Query('q') query: string) {
+    return await this.productsService.searchByName(query);
+  }
+
+  @Post('cache-product')
+  async getProductDetail(@Body() body: { id: string }) {
+    return await this.productsService.getProductDetail(body.id);
+  }
 }
