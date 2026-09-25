@@ -6,12 +6,16 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { BaseEntity } from '../../../common/entities/base.entity';
-import { PaymentStatus, Status } from '../../../common/enums/status.enum';
+import {
+  PaymentMethod,
+  PaymentStatus,
+  Status,
+} from '../../../common/enums/status.enum';
 import { OrderItem } from './order-item.entity';
 
 @Entity('orders')
 export class Order extends BaseEntity {
-  @Column({ name: 'code', type: 'varchar', length: 20, unique: true })
+  @Column({ name: 'code', type: 'varchar', length: 50, unique: true })
   code!: string;
 
   @Column({
@@ -55,7 +59,12 @@ export class Order extends BaseEntity {
   totalAmount!: number; // Tổng thanh toán
 
   // Thông tin giao hàng
-  @Column({ name: 'payment_method', type: 'varchar', length: 30 })
+  @Column({
+    name: 'payment_method',
+    type: 'varchar',
+    length: 30,
+    default: PaymentMethod.VNPAY,
+  })
   paymentMethod!: string;
 
   @Column({
@@ -72,7 +81,6 @@ export class Order extends BaseEntity {
     receiverName: string;
     phone: string;
     address: string;
-    city: string;
   };
 
   @CreateDateColumn({

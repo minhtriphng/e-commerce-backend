@@ -12,6 +12,10 @@ import { OrderItem } from './entities/order-item.entity';
 import { PaymentStatus, Status } from '../../common/enums/status.enum';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { Race } from '../../common/entities/race.entity';
+import { RedisService } from '../redis/redis.service';
+import { CACHE_OPTIONS } from '../../common/constants/cache.constant';
+import { User } from '../users/entities/user.entity';
+import { randomUUID } from 'node:crypto';
 @Injectable()
 export class OrdersService {
   constructor(
@@ -27,78 +31,154 @@ export class OrdersService {
     @InjectRepository(OrderItem)
     private readonly orderItemRepo: Repository<OrderItem>,
     private readonly dataSource: DataSource,
+    private readonly redisService: RedisService,
   ) {}
 
-  //   async createOrderSimple(userId: string, dto: CreateOrderDto) {
-  //     let subtotal = 0;
-  //     const orderItems: OrderItem[] = [];
+  async createOrder(userId: string, dto: CreateOrderDto) {
+    // TRANSACTION BẮT ĐẦU
+    const savedOrder = await this.dataSource.transaction(async (manager) => {
+      // 1. Check user
+      const user = await manager.findOne(User, { where: { id: userId } });
+      if (!user) throw new BadRequestException('Vui lòng đăng nhập!');
 
-  //     // 1. Duyệt danh sách item, kiểm tra & trừ stock thông thường
-  //     for (const item of dto.items) {
-  //       const variant = await this.variantRepo.findOne({
-  //         where: { id: item.productVariantId },
-  //         relations: { product: true },
-  //       });
+      // 2. Validate unique
+      const ids = dto.items.map((i) => i.productVariantId);
+      if (new Set(ids).size !== ids.length) {
+        throw new BadRequestException('Danh sách bị trùng');
+      }
 
-  //       if (!variant) {
-  //         throw new NotFoundException(
-  //           `Biến thể ${item.productVariantId} không tồn tại`,
-  //         );
-  //       }
+      // 3. Sort
+      //phải sắp xếp để tránh deadlock do có thể 2 transaction cùng đợi nhau
+      const variantIds = [...ids].sort();
 
-  //       if (variant.stock < item.quantity) {
-  //         throw new BadRequestException(
-  //           `Sản phẩm ${variant.product.name} không đủ tồn kho`,
-  //         );
-  //       }
-  //       await new Promise((r) => setTimeout(r, 300));
-  //       // Trừ kho trực tiếp
-  //       variant.stock -= item.quantity;
-  //       await this.variantRepo.save(variant);
+      // 4. Query + lock
+      const variants = await manager
+        .createQueryBuilder(ProductVariant, 'variant')
+        .leftJoinAndSelect('variant.product', 'product')
+        .where('variant.id IN (:...ids)', { ids: variantIds })
+        .setLock('pessimistic_write', undefined, ['variant']) // ← chỉ lock variant
+        .getMany();
 
-  //       // Tính toán & lưu Snapshot
-  //       const itemTotalPrice = Number(variant.price) * item.quantity;
-  //       subtotal += itemTotalPrice;
+      // variants đã có product sẵn, không cần query riêng
+      const variantMap = new Map(variants.map((v) => [v.id, v]));
 
-  //       const orderItem = new OrderItem();
-  //       orderItem.productVariantId = variant.id;
-  //       orderItem.productName = variant.product.name;
-  //       orderItem.price = variant.price;
-  //       orderItem.quantity = item.quantity;
-  //       orderItem.totalPrice = itemTotalPrice;
+      // 5. Duyệt items
+      let subtotal = 0;
+      const orderItems: OrderItem[] = [];
 
-  //       orderItems.push(orderItem);
-  //     }
+      for (const item of dto.items) {
+        const variant = variantMap.get(item.productVariantId);
+        if (!variant) throw new NotFoundException('Variant không tồn tại');
+        if (variant.stock < item.quantity) {
+          throw new BadRequestException(
+            `${variant.product.name} không đủ hàng`,
+          );
+        }
 
-  //     // 2. Tạo và Save Order
-  //     const shippingFee = 30000;
-  //     const totalAmount = subtotal + shippingFee;
+        variant.stock -= item.quantity;
+        await manager.save(variant);
 
-  //     const order = this.orderRepo.create({
-  //       code: `ORD-${Date.now()}`,
-  //       userId,
-  //       status: Status.PENDING,
-  //       subtotal,
-  //       shippingFee,
-  //       totalAmount,
-  //       shippingAddress: dto.shippingAddress,
-  //       paymentMethod: dto.paymentMethod,
-  //       paymentStatus: PaymentStatus.UNPAID,
-  //       orderItem: orderItems, // Nhờ cascade: true ở OrderEntity nên items tự được lưu cùng
-  //     });
+        const itemTotal = Number(variant.price) * item.quantity;
+        subtotal += itemTotal;
 
-  //     const savedOrder = await this.orderRepo.save(order);
+        orderItems.push(
+          manager.create(OrderItem, {
+            productVariantId: variant.id,
+            productName: variant.product.name,
+            price: variant.price,
+            quantity: item.quantity,
+            totalPrice: itemTotal,
+          }),
+        );
+      }
 
-  //     // // 3. Xóa items khỏi giỏ hàng
-  //     // const variantIds = dto.items.map((i) => i.productVariantId);
-  //     // await this.cartItemRepo.delete({
-  //     //   userId,
-  //     //   productVariantId: In(variantIds),
-  //     // });
+      // 6. Tạo order
+      const order = manager.create(Order, {
+        code: `ORD-${randomUUID()}`,
+        status: Status.PENDING,
+        userId,
+        subtotal,
+        shippingFee: 30000,
+        totalAmount: subtotal + 30000,
+        shippingAddress: {
+          receiverName: user.firstName + ' ' + user.lastName,
+          phone: user.phone,
+          address: user.address,
+        },
+        orderItem: orderItems,
+      });
 
-  //     return savedOrder;
-  //   }
-  // orders.service.ts
+      return manager.save(order);
+    });
+    // TRANSACTION KẾT THÚC (commit)
+
+    // 7. Xóa giỏ Redis (ngoài transaction)
+    const variantIds = dto.items.map((i) => i.productVariantId);
+    if (variantIds.length) {
+      await this.redisService.hdel(`cart:${userId}`, ...variantIds); //...trải mảng ra xóa hết những id có trong redis
+    }
+
+    return savedOrder;
+  }
+
+  async addShoppingCart(
+    userId: string,
+    variantId: string,
+    quantity: string,
+    res: any,
+  ) {
+    const cartKey = `cart:${userId}`;
+    const cartItem = await this.redisService.hget(cartKey, variantId);
+    if (cartItem) {
+      await this.redisService.hincrby(cartKey, variantId, Number(quantity));
+    } else {
+      await this.redisService.hset(cartKey, variantId, quantity);
+      await this.redisService.expire(cartKey, CACHE_OPTIONS.CART); // TTL 7 ngày
+    }
+    res.message = 'Thêm giỏ hàng thành công!';
+    return {};
+  }
+
+  async getShoppingCart(userId: string) {
+    const cartKey = `cart:${userId}`;
+
+    const cartItem = await this.redisService.hgetall(cartKey);
+
+    // hgetall trả {} khi giỏ trống, không phải null
+    if (!cartItem || Object.keys(cartItem).length === 0) {
+      throw new NotFoundException('Giỏ hàng đã hết hạn!');
+    }
+
+    // variantId[] và quantity map
+    const variantIds = Object.keys(cartItem);
+    const quantityMap: Record<string, number> = Object.fromEntries(
+      Object.entries(cartItem).map(([id, qty]) => [id, Number(qty)]),
+      //entries chuyển objec thành mảng [key, value]
+      //fromEntries thì ngược lại
+      // variantIds thì đảm bảo thứ tự trả về còn quantityMap không đảm bảo thứ tự trả về nên phải code như vậy
+    );
+
+    // Lấy tất cả variant 1 lần (tránh N+1)
+    const variants = await this.variantRepo.find({
+      where: { id: In(variantIds) },
+      relations: { product: true },
+    });
+
+    // Map ra response
+    const items = variants.map((variant) => ({
+      productId: variant.product.id,
+      productName: variant.product.name,
+      variantId: variant.id,
+      attributes: variant.attributes,
+      quantity: quantityMap[variant.id] ?? 0,
+      price: variant.price,
+      // thông tin product (rút gọn theo nhu cầu)
+    }));
+
+    // const totalItems = items.reduce((sum, i) => sum + i.quantity, 0);
+
+    return items;
+  }
 
   async testRaceConditon(id: string, quantity: number) {
     const variantRepo = await this.variantRepo.findOneBy({ id });

@@ -22,9 +22,6 @@ export class OrderItem extends BaseEntity {
   @Column({ name: 'product_name', type: 'text' })
   productName: string;
 
-  @Column({ name: 'variant_name', type: 'text', nullable: true })
-  variantName: string;
-
   @Column({ name: 'price', type: 'decimal', precision: 12, scale: 2 })
   price: number;
 

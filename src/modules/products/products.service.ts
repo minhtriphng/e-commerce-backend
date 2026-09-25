@@ -7,6 +7,7 @@ import { Category } from './entities/category.entity';
 import { CreateProductDto } from './dto/create-product.dto';
 import { FilterProductDto } from './dto/filter-product.dto';
 import { RedisService } from '../redis/redis.service';
+import { CACHE_OPTIONS } from '../../common/constants/cache.constant';
 
 @Injectable()
 export class ProductsService {
@@ -179,7 +180,11 @@ export class ProductsService {
     if (!product) throw new NotFoundException('Không tìm thấy sản phẩm!');
 
     // 3. Cache nguyên object bao gồm full variants vào Redis (1 giờ)
-    await this.redisService.set(cacheKey, JSON.stringify(product), 3600);
+    await this.redisService.set(
+      cacheKey,
+      JSON.stringify(product),
+      CACHE_OPTIONS.PRODUCT_HOT,
+    );
 
     return product;
   }

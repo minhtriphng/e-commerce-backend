@@ -6,10 +6,11 @@ import { Order } from './entities/order.entity';
 import { OrderItem } from './entities/order-item.entity';
 import { ProductVariant } from '../products/entities/product-variant.entity';
 import { Race } from '../../common/entities/race.entity';
+import { RedisService } from '../redis/redis.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Order, OrderItem, ProductVariant, Race])],
   controllers: [OrdersController],
-  providers: [OrdersService],
+  providers: [OrdersService, RedisService],
 })
 export class OrdersModule {}

@@ -13,7 +13,7 @@ export class RedisService {
       port: +this.configService.get<number>('REDIS_PORT', 6379),
     });
   }
-
+  // ===== String =====
   async set(key: string, value: any, ttl: number) {
     return this.redis.set(key, value, 'EX', ttl);
   }
@@ -32,6 +32,28 @@ export class RedisService {
 
   async expire(key: string, ttl: number) {
     return this.redis.expire(key, ttl);
+  }
+  // ===== Hash =====
+  async hset(key: string, field: string, value: any) {
+    return this.redis.hset(key, field, value);
+  }
+  async hget(key: string, field: string) {
+    return this.redis.hget(key, field);
+  }
+  async hgetall(key: string): Promise<Record<string, string>> {
+    return this.redis.hgetall(key);
+  }
+  async hdel(key: string, ...fields: string[]) {
+    return this.redis.hdel(key, ...fields);
+  }
+  async hincrby(key: string, field: string, increment: number) {
+    return this.redis.hincrby(key, field, increment);
+  }
+  async hexists(key: string, field: string) {
+    return this.redis.exists(key); // hoặc this.redis.hexists (ioredis có)
+  }
+  async hlen(key: string) {
+    return this.redis.hlen(key);
   }
 
   async onModuleDestroy(): Promise<void> {

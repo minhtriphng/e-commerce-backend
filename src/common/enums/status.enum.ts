@@ -9,3 +9,10 @@ export enum PaymentStatus {
   PAID = 'paid',
   REFUNDED = 'refunded',
 }
+
+export enum PaymentMethod {
+  TIEN_MAT = 'tien-mat',
+  MOMO = 'momo',
+  BANK = 'bank',
+  VNPAY = 'vnpay',
+}

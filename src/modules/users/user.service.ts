@@ -9,12 +9,14 @@ import * as bcrypt from 'bcrypt';
 import { User } from './entities/user.entity';
 import { OtpService } from '../auth/services/otp.service';
 import { RateLimitService } from '../../common/services/rate-limit.service';
+import { RedisService } from '../redis/redis.service';
 @Injectable()
 export class UserService {
   constructor(
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
     private readonly rateLimitService: RateLimitService,
+    private readonly redisService: RedisService,
   ) {}
 
   async emailExist(email: string) {
@@ -40,7 +42,7 @@ export class UserService {
     if (!isPasswordValid) {
       throw new UnauthorizedException('Sai tài khoản hoặc mật khẩu');
     }
-
+    await this.redisService.del(`login:${email}`);
     return user;
   }
 }
