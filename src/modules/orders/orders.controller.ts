@@ -6,20 +6,28 @@ import {
   Req,
   Res,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { AuthGuard } from '@nestjs/passport';
 import { AddCartDto } from './dto/add-cart.dto';
+import { IdempotencyInterceptor } from '../../interceptors/idempotency.interceptor';
 
 @Controller('orders')
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
+  @UseInterceptors(IdempotencyInterceptor)
   @UseGuards(AuthGuard('jwt'))
   @Post()
   async createOrder(@Req() req: any, @Body() body: CreateOrderDto) {
-    return this.ordersService.createOrder(req.user.userId, body);
+    // Không cần nhận @Headers('idempotency-key') nữa
+    // Lấy IP của client gọi lên
+    const ipAddr = (req.headers['x-forwarded-for'] ||
+      req.socket.remoteAddress ||
+      '127.0.0.1') as string;
+    return this.ordersService.createOrder(req.user.userId, body, ipAddr);
   }
 
   @Get('test-race')

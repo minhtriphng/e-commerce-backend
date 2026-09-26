@@ -12,9 +12,12 @@ import { ProductsModule } from './modules/products/products.module';
 import { UsersModule } from './modules/users/users.module';
 import { RedisModule } from './modules/redis/redis.module';
 import { OrdersModule } from './modules/orders/orders.module';
+import { PaymentModule } from './modules/payment/payment.module';
+import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     ConfigModule.forRoot({
       isGlobal: true,
     }),
@@ -24,6 +27,7 @@ import { OrdersModule } from './modules/orders/orders.module';
     UsersModule,
     RedisModule,
     OrdersModule,
+    PaymentModule,
   ],
   controllers: [AppController],
   providers: [

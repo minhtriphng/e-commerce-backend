@@ -14,8 +14,9 @@ export class RedisService {
     });
   }
   // ===== String =====
-  async set(key: string, value: any, ttl: number) {
-    return this.redis.set(key, value, 'EX', ttl);
+  async set(key: string, value: any, ...args: any[]) {
+    // Dùng any[] để bypass type checking khắt khe của ioredis
+    return this.redis.set(key, value, ...(args as [any]));
   }
 
   async get(key: string) {
