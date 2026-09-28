@@ -7,9 +7,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { User } from './entities/user.entity';
-import { OtpService } from '../auth/services/otp.service';
 import { RateLimitService } from '../../common/services/rate-limit.service';
 import { RedisService } from '../redis/redis.service';
+import { MailService } from '../mail/mail.service';
 @Injectable()
 export class UserService {
   constructor(
@@ -17,7 +17,17 @@ export class UserService {
     private readonly userRepo: Repository<User>,
     private readonly rateLimitService: RateLimitService,
     private readonly redisService: RedisService,
+    private readonly mailService: MailService,
   ) {}
+
+  async test(email: string) {
+    const user = await this.userRepo.findOneBy({ email });
+    if (!user) {
+      throw new ConflictException('Email chưa tồn tại!');
+    }
+    await this.mailService.sendWelcomeMail(user.email, user.lastName);
+    return user; // 👈 trả về NGAY, không chờ mail gửi xong
+  }
 
   async emailExist(email: string) {
     const user = await this.userRepo.findOneBy({ email });

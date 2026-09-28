@@ -3,18 +3,28 @@ import {
   forwardRef,
   Inject,
   Injectable,
+  Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 import * as querystring from 'qs';
 import { OrdersService } from '../orders/orders.service';
+import { RedisService } from '../redis/redis.service';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Order } from '../orders/entities/order.entity';
+import { Repository } from 'typeorm';
+import { StructuredLogger } from '../../common/utils/logger.util';
 
 @Injectable()
 export class PaymentService {
+  private readonly log = new StructuredLogger(PaymentService.name);
   constructor(
     private readonly configService: ConfigService,
     @Inject(forwardRef(() => OrdersService))
     private readonly orderService: OrdersService,
+    private readonly redisService: RedisService,
+    @InjectRepository(Order)
+    private readonly orderRepo: Repository<Order>,
   ) {}
   // Hàm sắp xếp object theo key alphabet chuẩn VNPay
   private sortObject(obj: any) {
@@ -85,7 +95,18 @@ export class PaymentService {
   }
 
   // Thêm hàm này vào trong class PaymentService
-  async verifyVnPayReturn(query: any, res: any) {
+  async verifyVnPayReturn(query: any) {
+    const startTime = Date.now(); // ← để đo duration
+    this.log.info('vnpay.callback.received', {
+      txnNo: query['vnp_TransactionNo'],
+      orderId: query['vnp_TxnRef'],
+      amount: query['vnp_Amount'],
+      responseCode: query['vnp_ResponseCode'],
+      bankCode: query['vnp_BankCode'],
+      ip: query['vnp_IpAddr'],
+      // KHÔNG log vnp_SecureHash
+    });
+    // 1. Verify signature
     const secretKey = this.configService.get('VNP_HASH_SECRET');
     //Lấy toàn bộ dữ liệu lúc gửi lên ra
     let vnp_Params = { ...query };
@@ -105,25 +126,100 @@ export class PaymentService {
 
     // So sánh chữ ký tính lại với chữ ký VNPay gửi về xem có khớp nhau không
     if (!(secureHash === signed)) {
+      this.log.warn('vnpay.signature.invalid', {
+        txnNo: query['vnp_TransactionNo'],
+        orderId: query['vnp_TxnRef'],
+        ip: query['vnp_IpAddr'],
+      });
       throw new BadRequestException('Chữ ký không hợp lệ (Kiểm tra thất bại!)');
     }
-    //Nếu khớp kiểm tra mã phản hồi của giao dịch (vnp_ResponseCode === '00' nghĩa là thành công)
-    const responseCode = query['vnp_ResponseCode'];
-    const orderId = query['vnp_TxnRef'];
-    const amount = Number(query['vnp_Amount']) / 100; // Chia lại cho 100 vì lúc gửi lên nhân 100
-    if (responseCode === '00') {
-      await this.orderService.markOrderAsPaid(orderId, amount, res);
-      res.message = 'Thanh toán thành công!';
+    // ③ LOG khi signature OK
+    this.log.info('vnpay.signature.verified', {
+      txnNo: query['vnp_TransactionNo'],
+    });
+    // 2. Chuẩn bị key + TTL
+    const txnNo =
+      query['vnp_TransactionNo'] ||
+      `${query['vnp_TxnRef']}:${query['vnp_ResponseCode']}`;
+    const key = `payment-callback:${txnNo}`;
+    const TTL_LOCK = 60; //60s
+    const TTL_DONE = 24 * 3600;
+    // 3. Acquire lock
+    const acquired = await this.redisService.setIdempotency(
+      key,
+      'PROCESSING',
+      'EX',
+      TTL_LOCK,
+      'NX',
+    );
+    if (!acquired) {
+      const status = await this.redisService.get(key);
+      this.log.info('vnpay.callback.duplicate', {
+        txnNo,
+        orderId: query['vnp_TxnRef'],
+        cachedStatus: status,
+      });
+      return {
+        code: '00',
+        message: status === 'DONE' ? 'Đã xử lý' : 'Đang xử lý',
+      };
+    }
+    this.log.info('vnpay.callback.locked', { txnNo, key });
+    // 4. Xử lý Nếu khớp kiểm tra mã phản hồi của giao dịch (vnp_ResponseCode === '00' nghĩa là thành công)
+    try {
+      const orderId = query['vnp_TxnRef'];
+      const amount = Number(query['vnp_Amount']) / 100; // Chia lại cho 100 vì lúc gửi lên nhân 100
+      if (isNaN(amount) || amount <= 0) {
+        this.log.warn('vnpay.callback.invalid_amount', {
+          txnNo,
+          orderId,
+          rawAmount: query['vnp_Amount'],
+        });
+        throw new BadRequestException('Số tiền không hợp lệ');
+      }
+      // 5. Giao dịch thất bại → không mark PAID, nhưng set DONE
+      if (query['vnp_ResponseCode'] !== '00') {
+        this.log.warn('vnpay.callback.transaction_failed', {
+          txnNo,
+          orderId,
+          responseCode: query['vnp_ResponseCode'],
+          message: query['vnp_Message'],
+        });
+        await this.redisService.setIdempotency(key, 'DONE', 'EX', TTL_DONE);
+        return { code: '00', message: 'Giao dịch thất bại' };
+      }
+      // 6. Update DB (transaction + pessimistic lock đã nằm trong service)
+      await this.orderService.markOrderAsPaid(orderId, amount);
+      await this.redisService.setIdempotency(key, 'DONE', 'EX', TTL_DONE);
+      this.log.info('vnpay.callback.success', {
+        txnNo,
+        orderId,
+        amount,
+        duration: Date.now() - startTime,
+      });
       return {
         data: {
           orderId,
           amount,
-          transactionNo: query['vnp_TransactionNo'], // Mã giao dịch bên VNPay
+          transactionNo: query['vnp_TransactionNo'],
         },
       };
-    } else {
+    } catch (err: any) {
+      this.log.error(
+        'vnpay.callback.failed',
+        {
+          txnNo,
+          orderId: query['vnp_TxnRef'],
+          amount: Number(query['vnp_Amount']) / 100,
+          reason: err.message,
+          duration: Date.now() - startTime,
+        },
+        err,
+      );
+      await this.redisService.del(key);
+      // Trả message chung chung, không leak chi tiết
       throw new BadRequestException(
-        'Thanh toán thất bại hoặc bị hủy bởi người dùng!',
+        'Xử lý callback thất bại, vui lòng thử lại.',
       );
     }
   }

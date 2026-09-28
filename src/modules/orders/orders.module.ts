@@ -9,14 +9,22 @@ import { Race } from '../../common/entities/race.entity';
 import { RedisService } from '../redis/redis.service';
 import { PaymentService } from '../payment/payment.service';
 import { PaymentModule } from '../payment/payment.module';
+import { AuditService } from '../audit/audit.service';
+import { StockAuditLog } from '../audit/entities/stock-audit-log.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Order, OrderItem, ProductVariant, Race]),
+    TypeOrmModule.forFeature([
+      Order,
+      OrderItem,
+      ProductVariant,
+      Race,
+      StockAuditLog,
+    ]),
     forwardRef(() => PaymentModule),
   ],
   controllers: [OrdersController],
-  providers: [OrdersService, RedisService],
+  providers: [OrdersService, RedisService, AuditService],
   exports: [OrdersService],
 })
 export class OrdersModule {}

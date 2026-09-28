@@ -14,9 +14,10 @@ import { Session } from '../users/entities/session.entity';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { GoogleStrategy } from './strategies/google.strategy';
 import { RateLimitService } from '../../common/services/rate-limit.service';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([User, Session])],
+  imports: [MailModule, TypeOrmModule.forFeature([User, Session])],
   controllers: [AuthController],
   providers: [
     AuthService,

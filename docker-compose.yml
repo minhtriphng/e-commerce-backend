@@ -1,4 +1,46 @@
 services:
+  app:
+    build: . # build từ Dockerfile ở thư mục hiện tại
+    container_name: app-ecommerce
+    restart: always
+    ports:
+      - '${PORT}:3000' # ngoài máy đệ truy cập :APP_PORT, trong container là :3000
+    environment:
+      PORT: 3000
+      # 👇 trỏ sang TÊN SERVICE trong compose, docker tự nối mạng nội bộ
+      # DB — trỏ vào tên service trong network
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      # Redis — trỏ vào tên service
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      # Mail
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      SMTP_FROM: ${SMTP_FROM}
+      # JWT
+      ACCESS_TOKEN_SECRET: ${ACCESS_TOKEN_SECRET}
+      REFRESH_TOKEN_SECRET: ${REFRESH_TOKEN_SECRET}
+      # Google OAuth
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      GOOGLE_CALLBACK_URL: ${GOOGLE_CALLBACK_URL}
+      # VNPay
+      VNP_TMN_CODE: ${VNP_TMN_CODE}
+      VNP_HASH_SECRET: ${VNP_HASH_SECRET}
+      VNP_URL: ${VNP_URL}
+      VNP_RETURN_URL: ${VNP_RETURN_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy # đợi postgres thực sự sẵn sàng mới start app
+      redis:
+        condition: service_started
+
   postgres:
     image: postgres:15
     container_name: postgres-ecommerce
@@ -11,6 +53,11 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck: # 👈 THÊM MỚI — bắt buộc cho depends_on phía trên hoạt động
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   redis:
     image: redis:7
@@ -18,5 +65,8 @@ services:
     restart: always
     ports:
       - '${REDIS_PORT}:6379'
+    volumes:
+      - redis_data:/data
 volumes:
   postgres_data:
+  redis_data:

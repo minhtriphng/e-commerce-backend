@@ -2,6 +2,7 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, DataSource, LessThan } from 'typeorm';
@@ -18,8 +19,11 @@ import { User } from '../users/entities/user.entity';
 import { randomUUID } from 'node:crypto';
 import { PaymentService } from '../payment/payment.service';
 import { Cron, CronExpression } from '@nestjs/schedule';
+import { StructuredLogger } from '../../common/utils/logger.util';
+import { AuditService } from '../audit/audit.service';
 @Injectable()
 export class OrdersService {
+  private readonly log = new StructuredLogger(PaymentService.name);
   constructor(
     @InjectRepository(Order)
     private readonly orderRepo: Repository<Order>,
@@ -35,6 +39,7 @@ export class OrdersService {
     private readonly dataSource: DataSource,
     private readonly redisService: RedisService,
     private readonly paymentService: PaymentService,
+    private readonly auditService: AuditService,
   ) {}
 
   async createOrder(userId: string, dto: CreateOrderDto, ip: string) {
@@ -77,9 +82,21 @@ export class OrdersService {
             `${variant.product.name} không đủ hàng`,
           );
         }
-
+        const oldStock = variant.stock;
         variant.stock -= item.quantity;
         await manager.save(variant);
+
+        await this.auditService.logStockChange(
+          {
+            productVariantId: variant.id,
+            actorId: userId,
+            oldStock,
+            newStock: variant.stock,
+            reason: `Đặt hàng`, // chưa có order.id vì order tạo sau
+            referenceId: undefined, // sẽ update sau
+          },
+          manager, // ← truyền manager để cùng transaction
+        );
 
         const itemTotal = Number(variant.price) * item.quantity;
         subtotal += itemTotal;
@@ -128,7 +145,8 @@ export class OrdersService {
     return { paymentUrl: paymentUrl, Order: savedOrder };
   }
 
-  async markOrderAsPaid(orderId: string, amount: number, res: any) {
+  async markOrderAsPaid(orderId: string, amount: number) {
+    this.log.info('order.mark_paid.start', { orderId, amount });
     return await this.dataSource.transaction(async (manager) => {
       // 1. Tìm đơn hàng và khóa dòng đó lại (tránh bị tranh chấp nếu webhook và return gọi cùng lúc)
       const order = await manager.findOne(Order, {
@@ -137,20 +155,27 @@ export class OrdersService {
       });
 
       if (!order) {
+        this.log.warn('order.not_found', { orderId });
         throw new NotFoundException('Không tìm thấy đơn hàng!');
       }
 
       // 2. Kiểm tra nếu đơn hàng đã được thanh toán trước đó rồi thì bỏ qua (Idempotency tầng DB)
-      if (
-        order.status === Status.PROCESSING ||
-        order.paymentStatus === PaymentStatus.PAID
-      ) {
+      if (order.paymentStatus === PaymentStatus.PAID) {
+        this.log.info('order.already_paid', { orderId });
         return { message: 'Đơn hàng này đã được thanh toán từ trước đó rồi.' };
+      }
+      if (order.status === Status.CANCELLED) {
+        this.log.warn('order.cancelled', { orderId });
+        throw new BadRequestException('Đơn hàng đã bị hủy!');
       }
 
       // 3. Kiểm tra số tiền thanh toán có khớp với tổng tiền đơn hàng không (bảo mật quan trọng)
-      const normalize = (v: string | number) => Number(v).toFixed(2);
-      if (normalize(order.totalAmount) !== normalize(amount)) {
+      if (Number(order.totalAmount) !== Number(amount)) {
+        this.log.warn('order.amount_mismatch', {
+          orderId,
+          expected: Number(order.totalAmount),
+          received: Number(amount),
+        });
         throw new BadRequestException('Số tiền không khớp!');
       }
 
@@ -158,9 +183,7 @@ export class OrdersService {
       order.status = Status.PROCESSING;
       order.paymentStatus = PaymentStatus.PAID;
       // Bạn có thể lưu thêm mã giao dịch VNPay vào entity Order nếu muốn (ví dụ: order.vnpayTransactionNo = paymentData.transactionNo)
-
       await manager.save(order);
-      res.message = 'Cập nhật trạng thái đơn hàng thành công!';
       return order;
     });
   }

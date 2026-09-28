@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { typeOrmAsyncConfig } from './config/typeorm.config';
 import { AuthModule } from './modules/auth/auth.module';
@@ -14,9 +14,22 @@ import { RedisModule } from './modules/redis/redis.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { PaymentModule } from './modules/payment/payment.module';
 import { ScheduleModule } from '@nestjs/schedule';
+import { AuditModule } from './modules/audit/audit.module';
+import { BullModule } from '@nestjs/bullmq';
+import { MailModule } from './modules/mail/mail.module';
 
 @Module({
   imports: [
+    BullModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        connection: {
+          host: configService.get<string>('REDIS_HOST', 'localhost'),
+          port: configService.get<number>('REDIS_PORT', 6379),
+        },
+      }),
+    }),
     ScheduleModule.forRoot(),
     ConfigModule.forRoot({
       isGlobal: true,
@@ -28,6 +41,8 @@ import { ScheduleModule } from '@nestjs/schedule';
     RedisModule,
     OrdersModule,
     PaymentModule,
+    AuditModule,
+    MailModule,
   ],
   controllers: [AppController],
   providers: [

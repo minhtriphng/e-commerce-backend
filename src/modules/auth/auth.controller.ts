@@ -15,10 +15,14 @@ import { AuthGuard } from '@nestjs/passport';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { UserRole } from '../../common/enums/user.enum';
 import { Roles } from '../../common/decorators/roles.decorator';
+import { UserService } from '../users/user.service';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly userService: UserService,
+  ) {}
   @Get('ip')
   getIp(@Req() req: any): string {
     const clientIp = req.ip;
@@ -43,6 +47,11 @@ export class AuthController {
   @Post('send-otp')
   sendOtp(@Body() body: SendOtpDto, @Res({ passthrough: true }) res: Response) {
     return this.authService.sendOtp(body.email, res);
+  }
+
+  @Post('mail')
+  async test(@Body() body: { email: string }) {
+    return this.userService.test(body.email);
   }
 
   @Post('register')

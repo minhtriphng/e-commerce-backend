@@ -42,7 +42,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
     }
 
     // 2. Chống Race Condition bằng cơ chế SET NX (Khóa tạm 60 giây)
-    const isLockAcquired = await this.redisService.set(
+    const isLockAcquired = await this.redisService.setIdempotency(
       redisKey,
       'PROCESSING',
       'EX',
@@ -59,7 +59,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
     return next.handle().pipe(
       tap(async (response) => {
         // BƯỚC NÀY CHẠY SAU KHI CONTROLLER & SERVICE ĐÃ THỰC THI XONG XUÔI!
-        await this.redisService.set(
+        await this.redisService.setIdempotency(
           redisKey,
           JSON.stringify(response),
           'EX',
