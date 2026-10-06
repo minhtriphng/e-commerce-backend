@@ -92,4 +92,12 @@ export class Order extends BaseEntity {
     cascade: true,
   })
   orderItem!: OrderItem[];
+
+  @Column({
+    name: 'vnpay_transaction_no',
+    type: 'varchar',
+    length: 100,
+    nullable: true,
+  })
+  vnpayTransactionNo!: string | null;
 }

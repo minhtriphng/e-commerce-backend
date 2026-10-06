@@ -1,7 +1,21 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  UploadedFile,
+  UploadedFiles,
+  UseInterceptors,
+} from '@nestjs/common';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { FilterProductDto } from './dto/filter-product.dto';
+import {
+  FileFieldsInterceptor,
+  FileInterceptor,
+} from '@nestjs/platform-express';
 
 @Controller('products')
 export class ProductsController {
@@ -11,9 +25,27 @@ export class ProductsController {
     return await this.productsService.createCategory(body.name);
   }
 
+  @UseInterceptors(
+    FileFieldsInterceptor(
+      [
+        { name: 'thumbnail', maxCount: 1 }, // 👈 1 ảnh chính
+        { name: 'gallery', maxCount: 3 }, // 👈 tối đa 10 ảnh phụ
+      ],
+      {
+        limits: { fileSize: 5 * 1024 * 1024 }, //giới hạn 5mb
+      },
+    ),
+  )
   @Post()
-  async createProduct(@Body() createProductDto: CreateProductDto) {
-    return await this.productsService.createProduct(createProductDto);
+  async createProduct(
+    @Body() createProductDto: CreateProductDto,
+    @UploadedFiles()
+    files: {
+      thumbnail?: Express.Multer.File[];
+      gallery?: Express.Multer.File[];
+    },
+  ) {
+    return await this.productsService.createProduct(createProductDto, files);
   }
 
   @Get()
@@ -26,8 +58,18 @@ export class ProductsController {
     return await this.productsService.searchByName(query);
   }
 
-  @Post('cache-product')
-  async getProductDetail(@Body() body: { id: string }) {
-    return await this.productsService.getProductDetail(body.id);
+  @Get('latest') // Đường dẫn sẽ là: GET /products/latest
+  async getLatest() {
+    return await this.productsService.getLatestProducts();
+  }
+
+  @Get('category')
+  async getCategory() {
+    return await this.productsService.getCategory();
+  }
+
+  @Get(':id')
+  async getProductDetail(@Param('id') id: string) {
+    return await this.productsService.getProductDetail(id);
   }
 }

@@ -159,9 +159,17 @@ export class PaymentService {
         orderId: query['vnp_TxnRef'],
         cachedStatus: status,
       });
+
+      const isDone = status === 'DONE';
+      const orderId = query['vnp_TxnRef'];
+      const amount = Number(query['vnp_Amount']) / 100;
+
       return {
-        code: '00',
-        message: status === 'DONE' ? 'Đã xử lý' : 'Đang xử lý',
+        orderId,
+        amount,
+        transactionNo: query['vnp_TransactionNo'],
+        status: query['vnp_ResponseCode'] === '00' ? 'success' : 'failed',
+        message: isDone ? 'Đã xử lý' : 'Đang xử lý',
       };
     }
     this.log.info('vnpay.callback.locked', { txnNo, key });
@@ -186,10 +194,20 @@ export class PaymentService {
           message: query['vnp_Message'],
         });
         await this.redisService.setIdempotency(key, 'DONE', 'EX', TTL_DONE);
-        return { code: '00', message: 'Giao dịch thất bại' };
+        return {
+          orderId,
+          amount,
+          transactionNo: query['vnp_TransactionNo'],
+          status: 'failed',
+          message: 'Giao dịch thất bại',
+        };
       }
       // 6. Update DB (transaction + pessimistic lock đã nằm trong service)
-      await this.orderService.markOrderAsPaid(orderId, amount);
+      await this.orderService.markOrderAsPaid(
+        orderId,
+        amount,
+        query['vnp_TransactionNo'],
+      );
       await this.redisService.setIdempotency(key, 'DONE', 'EX', TTL_DONE);
       this.log.info('vnpay.callback.success', {
         txnNo,
@@ -198,11 +216,11 @@ export class PaymentService {
         duration: Date.now() - startTime,
       });
       return {
-        data: {
-          orderId,
-          amount,
-          transactionNo: query['vnp_TransactionNo'],
-        },
+        orderId,
+        amount,
+        transactionNo: query['vnp_TransactionNo'],
+        status: 'success',
+        message: 'Thanh toán thành công',
       };
     } catch (err: any) {
       this.log.error(

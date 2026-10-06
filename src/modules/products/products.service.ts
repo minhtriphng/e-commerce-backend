@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Product } from './entities/product.entity';
 import { DataSource, Repository } from 'typeorm';
@@ -8,6 +12,7 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { FilterProductDto } from './dto/filter-product.dto';
 import { RedisService } from '../redis/redis.service';
 import { CACHE_OPTIONS } from '../../common/constants/cache.constant';
+import { CloudinaryService } from '../cloudinary/cloudinary.service';
 
 @Injectable()
 export class ProductsService {
@@ -20,95 +25,133 @@ export class ProductsService {
     private categoryRepo: Repository<Category>,
     private readonly dataSource: DataSource,
     private readonly redisService: RedisService,
+    private readonly cloudinary: CloudinaryService,
   ) {}
   async createCategory(categoryName: string) {
     const category = this.categoryRepo.create({ name: categoryName });
     await this.categoryRepo.save(category);
   }
 
-  async createProduct(createProductDto: CreateProductDto) {
+  async createProduct(
+    createProductDto: CreateProductDto,
+    files: {
+      thumbnail?: Express.Multer.File[];
+      gallery?: Express.Multer.File[];
+    },
+  ) {
     return await this.dataSource.transaction(
       async (transactionalEntityManager) => {
-        const { variants, category, ...productData } = createProductDto;
-        // Tạo product mới
+        const thumbnailFile = files.thumbnail?.[0];
+        const galleryFiles = files.gallery ?? [];
+
+        // ===== 1. VALIDATE TRƯỚC KHI UPLOAD =====
+        if (!thumbnailFile) {
+          throw new BadRequestException('Vui lòng chọn ảnh chính (thumbnail)');
+        }
+
+        // entity ghi "tối đa 3 cái" thì check luôn
+        if (galleryFiles.length > 3) {
+          throw new BadRequestException('Tối đa 3 ảnh phụ');
+        }
+
+        const allowed = ['image/jpeg', 'image/png', 'image/webp'];
+        const allFiles = [thumbnailFile, ...galleryFiles];
+        for (const file of allFiles) {
+          if (!allowed.includes(file.mimetype)) {
+            throw new BadRequestException('Chỉ chấp nhận ảnh jpg, png, webp');
+          }
+        }
+
+        // ===== 2. UPLOAD =====
+        const thumbnailUrl = await this.cloudinary.uploadImage(
+          thumbnailFile,
+          'products',
+        );
+
+        const galleryUrls: string[] = [];
+        for (const file of galleryFiles) {
+          const url = await this.cloudinary.uploadImage(
+            file,
+            'products/gallery',
+          );
+          galleryUrls.push(url);
+        }
+
+        // ===== 3. LƯU DB =====
+        const { variants, categoryId, ...productData } = createProductDto;
+        const category = await transactionalEntityManager.findOneBy(Category, {
+          id: categoryId,
+        });
+        if (!category) throw new BadRequestException('Danh mục không tồn tại');
         const product = transactionalEntityManager.create(Product, {
           ...productData,
-          category: category,
+          category,
           oldPrice: productData.oldPrice || null,
+          thumbnailUrl, // 👈 sửa ở đây: truyền biến, không phải files.
+          galleryUrls, // 👈 thêm dòng này
         });
 
-        // Tạo variants
-        const variantEntities = variants.map((variantDto) => {
-          return transactionalEntityManager.create(ProductVariant, {
-            attributes: variantDto.attributes,
-            price: variantDto.price,
-            stock: variantDto.stock,
-            // product: product,
-          });
-        });
+        const variantEntities = variants.map((variantDto) =>
+          transactionalEntityManager.create(ProductVariant, {
+            attributes:
+              typeof variantDto.attributes === 'string'
+                ? JSON.parse(variantDto.attributes) // 👈 form-data gửi lên là string
+                : variantDto.attributes,
+            price: Number(variantDto.price),
+            stock: Number(variantDto.stock),
+          }),
+        );
         product.variants = variantEntities;
-        // Lưu tất cả vào database
+
         return await transactionalEntityManager.save(product);
       },
     );
   }
 
   async filterProducts(filterDto: FilterProductDto) {
-    const { categorySlug, minPrice, maxPrice, cursor, limit, ...attributes } =
-      filterDto;
-    // 1. Tạo QueryBuilder từ Product
+    const { categorySlug, minPrice, maxPrice, cursor, limit } = filterDto;
+
+    // 1. QueryBuilder từ Product — dùng leftJoin để giữ tất cả variant của product
     const query = this.productRepo
       .createQueryBuilder('product')
-      .leftJoinAndSelect('product.category', 'category') // Join với bảng Category
-      .innerJoinAndSelect('product.variants', 'variant'); // Join với bảng ProductVariant (Dùng innerJoin để chỉ lấy SP có variant thỏa điều kiện)
+      .leftJoinAndSelect('product.category', 'category')
+      .leftJoinAndSelect('product.variants', 'variant'); // 👈 leftJoinAndSelect, KHÔNG innerJoin
 
-    // 2. Lọc theo Danh mục (nằm ở bảng Category)
+    // 2. Lọc theo category (bảng Category)
     if (categorySlug) {
       query.andWhere('category.slug = :categorySlug', { categorySlug });
     }
 
-    // 3. Lọc theo Khoảng giá (nằm ở bảng ProductVariant)
+    // 3. Lọc theo giá — DÙNG product.newPrice, KHÔNG dùng variant.price
     if (minPrice !== undefined) {
-      query.andWhere('variant.price >= :minPrice', { minPrice });
+      query.andWhere('product.newPrice >= :minPrice', { minPrice });
     }
 
     if (maxPrice !== undefined) {
-      query.andWhere('variant.price <= :maxPrice', { maxPrice });
+      query.andWhere('product.newPrice <= :maxPrice', { maxPrice });
     }
 
-    // 4. Lọc theo thuộc tính JSONB (nằm ở bảng ProductVariant)
-    if (attributes && Object.keys(attributes).length > 0) {
-      Object.entries(attributes).forEach(([key, value]) => {
-        if (value) {
-          query.andWhere(`variant.attributes->>'${key}' = :value_${key}`, {
-            [`value_${key}`]: String(value),
-          });
-        }
-      });
-    }
-    // =========================================================
-    // CURSOR PAGINATION VỚI UUIDv7 (Siêu gọn)
-    // =========================================================
+    // 4. Cursor pagination với UUIDv7
     if (cursor) {
-      // Vì ORDER BY product.id DESC, nên các trang sau sẽ có id NHỎ HƠN cursor
+      // Vì ORDER BY product.id DESC, các trang sau có id NHỎ HƠN cursor
       query.andWhere('product.id < :cursor', { cursor });
     }
 
-    // Sắp xếp theo UUIDv7 giảm dần (Đồng nghĩa với Mới nhất -> Cũ nhất)
+    // 5. Sắp xếp theo UUIDv7 giảm dần (mới nhất → cũ nhất)
     query.orderBy('product.id', 'DESC');
 
-    // Dùng take() để TypeORM xử lý gom dòng Join 1-N đúng số lượng Product
+    // 6. Dùng take() để TypeORM gom dòng join 1-N đúng số lượng Product
     query.take(Number(limit) + 1);
 
     const products = await query.getMany();
 
-    // Kiểm tra còn trang sau không
+    // 7. Kiểm tra còn trang sau không
     const hasNextPage = products.length > Number(limit);
     if (hasNextPage) {
       products.pop(); // Bỏ item dôi ra
     }
 
-    // Next cursor chính là UUIDv7 của sản phẩm cuối cùng trong list
+    // 8. Next cursor = UUIDv7 của sản phẩm cuối cùng
     const nextCursor =
       products.length > 0 ? products[products.length - 1].id : null;
 
@@ -120,24 +163,6 @@ export class ProductsService {
         has_next_page: hasNextPage,
       },
     };
-    // return await query.getMany();
-    //     SELECT
-    //     product.*,
-    //     category.*,
-    //     variant.*
-    // FROM product product
-
-    // LEFT JOIN category category
-    //     ON category.id = product.category_id
-
-    // INNER JOIN product_variant variant
-    //     ON variant.product_id = product.id
-
-    // WHERE category.slug = 'dien-thoai'
-
-    //   AND variant.price >= 5000000
-
-    //   AND variant.attributes->>'ram' = '8GB';
   }
 
   async searchByName(keyword: string) {
@@ -187,5 +212,18 @@ export class ProductsService {
     );
 
     return product;
+  }
+
+  async getLatestProducts(): Promise<Product[]> {
+    return await this.productRepo.find({
+      order: {
+        createdAt: 'DESC', // Sắp xếp mới nhất lên đầu (giảm dần)
+      },
+      take: 20, // Lấy đúng 10 sản phẩm
+    });
+  }
+
+  async getCategory() {
+    return await this.categoryRepo.find();
   }
 }

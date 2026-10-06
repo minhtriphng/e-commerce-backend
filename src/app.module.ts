@@ -17,6 +17,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { AuditModule } from './modules/audit/audit.module';
 import { BullModule } from '@nestjs/bullmq';
 import { MailModule } from './modules/mail/mail.module';
+import { CloudinaryModule } from './modules/cloudinary/cloudinary.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { MailModule } from './modules/mail/mail.module';
     PaymentModule,
     AuditModule,
     MailModule,
+    CloudinaryModule,
   ],
   controllers: [AppController],
   providers: [

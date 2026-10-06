@@ -3,11 +3,15 @@ services:
     build: . # build từ Dockerfile ở thư mục hiện tại
     container_name: app-ecommerce
     restart: always
-    ports:
-      - '${PORT}:3000' # ngoài máy đệ truy cập :APP_PORT, trong container là :3000
+    # Bỏ ports ở đây — app chỉ lắng nghe trong network nội bộ
+    # nginx sẽ là cửa ngõ duy nhất
+    expose:
+      - '3000'
     environment:
       PORT: 3000
       # 👇 trỏ sang TÊN SERVICE trong compose, docker tự nối mạng nội bộ
+      # FE
+      FE_URL: ${FE_URL}
       # DB — trỏ vào tên service trong network
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
@@ -35,6 +39,10 @@ services:
       VNP_HASH_SECRET: ${VNP_HASH_SECRET}
       VNP_URL: ${VNP_URL}
       VNP_RETURN_URL: ${VNP_RETURN_URL}
+      #Cloudinary
+      CLOUDINARY_NAME: ${CLOUDINARY_NAME}
+      CLOUDINARY_KEY: ${CLOUDINARY_KEY}
+      CLOUDINARY_SECRET: ${CLOUDINARY_SECRET}
     depends_on:
       postgres:
         condition: service_healthy # đợi postgres thực sự sẵn sàng mới start app
@@ -53,6 +61,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck: # 👈 THÊM MỚI — bắt buộc cho depends_on phía trên hoạt động
       test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}']
       interval: 5s
@@ -67,6 +76,17 @@ services:
       - '${REDIS_PORT}:6379'
     volumes:
       - redis_data:/data
+
+  nginx: # 👈 SERVICE MỚI
+    image: nginx:alpine
+    container_name: nginx-ecommerce
+    restart: always
+    ports:
+      - '80:80' # 👇 nếu muốn đổi cổng ngoài thì '8080:80' chẳng hạn
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - app
 volumes:
   postgres_data:
   redis_data:

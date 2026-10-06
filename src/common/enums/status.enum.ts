@@ -12,7 +12,5 @@ export enum PaymentStatus {
 
 export enum PaymentMethod {
   TIEN_MAT = 'tien-mat',
-  MOMO = 'momo',
-  BANK = 'bank',
   VNPAY = 'vnpay',
 }

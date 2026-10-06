@@ -13,12 +13,6 @@ import {
 import { Type } from 'class-transformer';
 import { IsAlphaOnly } from '../../../common/decorators/is-alpha.decorator';
 
-class CreateCategoryDto {
-  @IsString()
-  @IsNotEmpty()
-  id!: string;
-}
-
 class CreateProductVariantDto {
   @IsObject()
   attributes!: Record<string, string>;
@@ -41,15 +35,6 @@ export class CreateProductDto {
   @IsAlphaOnly()
   description!: string;
 
-  @IsUrl()
-  thumbnailUrl!: string;
-
-  @IsArray()
-  @ArrayMaxSize(3)
-  @IsUrl({}, { each: true })
-  @IsOptional()
-  galleryUrls?: string[];
-
   @IsNumber()
   @Min(0)
   @IsOptional()
@@ -59,8 +44,9 @@ export class CreateProductDto {
   @Min(0)
   newPrice!: number;
 
-  @IsObject()
-  category!: CreateCategoryDto;
+  @IsString()
+  @IsNotEmpty()
+  categoryId!: string;
 
   @IsArray()
   @ValidateNested({ each: true }) //dùng để validate các object bên trong một mảng hoặc object, each:true là áp dụng cho từng phần tử trong mảng(false là chỉ lấy cái đầu)

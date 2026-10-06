@@ -5,12 +5,14 @@ import {
 } from '@nestjs/common';
 import { RedisService } from '../../redis/redis.service';
 import { RateLimitService } from '../../../common/services/rate-limit.service';
+import { MailService } from '../../mail/mail.service';
 
 @Injectable()
 export class OtpService {
   constructor(
     private readonly redisService: RedisService,
     private readonly rateLimitService: RateLimitService,
+    private readonly mailService: MailService,
   ) {}
 
   generateOtp(): string {
@@ -26,8 +28,8 @@ export class OtpService {
     );
 
     const otp = this.generateOtp();
-
-    return await this.redisService.set(`otp:register:${email}`, otp, 60);
+    await this.redisService.set(`otp:register:${email}`, otp, 60);
+    await this.mailService.queueSendOtpMail(email, otp);
   }
 
   async verifyOtp(email: string, otpInput: string) {

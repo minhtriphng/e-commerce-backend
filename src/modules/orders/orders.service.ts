@@ -10,7 +10,11 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { Order } from './entities/order.entity';
 import { ProductVariant } from '../products/entities/product-variant.entity';
 import { OrderItem } from './entities/order-item.entity';
-import { PaymentStatus, Status } from '../../common/enums/status.enum';
+import {
+  PaymentMethod,
+  PaymentStatus,
+  Status,
+} from '../../common/enums/status.enum';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { Race } from '../../common/entities/race.entity';
 import { RedisService } from '../redis/redis.service';
@@ -111,20 +115,25 @@ export class OrdersService {
           }),
         );
       }
-
+      const shippingFee = dto.shippingMethod === 'express' ? 30000 : 0;
+      const shippingAddress = dto.shippingAddress || {
+        receiverName: `${user.firstName} ${user.lastName}`.trim(),
+        phone: user.phone,
+        address: user.address,
+      };
       // 6. Tạo order
       const order = manager.create(Order, {
-        code: `ORD-${randomUUID()}`,
-        status: Status.PENDING,
+        code: `ORD${Date.now().toString().slice(-8)}${Math.floor(Math.random() * 1000)}`,
+        status:
+          dto.paymentMethod === PaymentMethod.TIEN_MAT
+            ? Status.PROCESSING // 👈 COD → đang giao luôn
+            : Status.PENDING, // 👈 Bank/VNPay → chờ thanh toán
         userId,
         subtotal,
-        shippingFee: 30000,
+        shippingFee: shippingFee,
         totalAmount: subtotal + 30000,
-        shippingAddress: {
-          receiverName: user.firstName + ' ' + user.lastName,
-          phone: user.phone,
-          address: user.address,
-        },
+        shippingAddress,
+        paymentMethod: dto.paymentMethod,
         orderItem: orderItems,
       });
       return manager.save(order);
@@ -135,7 +144,9 @@ export class OrdersService {
     if (variantIds.length) {
       await this.redisService.hdel(`cart:${userId}`, ...variantIds); //...trải mảng ra xóa hết những id có trong redis
     }
-
+    if (dto.paymentMethod === PaymentMethod.TIEN_MAT) {
+      return { Order: savedOrder };
+    }
     const paymentUrl = this.paymentService.createVnPayUrl(
       ip,
       savedOrder.totalAmount,
@@ -145,7 +156,33 @@ export class OrdersService {
     return { paymentUrl: paymentUrl, Order: savedOrder };
   }
 
-  async markOrderAsPaid(orderId: string, amount: number) {
+  async findMyOrders(userId: string) {
+    const orders = await this.orderRepo
+      .createQueryBuilder('order')
+      .leftJoinAndSelect('order.orderItem', 'orderItem')
+      .where('order.userId = :userId', { userId })
+      .orderBy('order.createdAt', 'DESC')
+      .getMany();
+
+    return orders;
+  }
+
+  async findMyOrderById(userId: string, orderId: string) {
+    const order = await this.orderRepo
+      .createQueryBuilder('order')
+      .leftJoinAndSelect('order.orderItem', 'orderItem')
+      .where('order.id = :orderId', { orderId })
+      .andWhere('order.userId = :userId', { userId })
+      .getOne();
+
+    if (!order) {
+      throw new NotFoundException('Không tìm thấy đơn hàng');
+    }
+
+    return order;
+  }
+
+  async markOrderAsPaid(orderId: string, amount: number, vnpayTxnNo?: string) {
     this.log.info('order.mark_paid.start', { orderId, amount });
     return await this.dataSource.transaction(async (manager) => {
       // 1. Tìm đơn hàng và khóa dòng đó lại (tránh bị tranh chấp nếu webhook và return gọi cùng lúc)
@@ -162,7 +199,7 @@ export class OrdersService {
       // 2. Kiểm tra nếu đơn hàng đã được thanh toán trước đó rồi thì bỏ qua (Idempotency tầng DB)
       if (order.paymentStatus === PaymentStatus.PAID) {
         this.log.info('order.already_paid', { orderId });
-        return { message: 'Đơn hàng này đã được thanh toán từ trước đó rồi.' };
+        return order;
       }
       if (order.status === Status.CANCELLED) {
         this.log.warn('order.cancelled', { orderId });
@@ -182,6 +219,7 @@ export class OrdersService {
       // 4. Cập nhật trạng thái đơn hàng thành PAID
       order.status = Status.PROCESSING;
       order.paymentStatus = PaymentStatus.PAID;
+      if (vnpayTxnNo) order.vnpayTransactionNo = vnpayTxnNo;
       // Bạn có thể lưu thêm mã giao dịch VNPay vào entity Order nếu muốn (ví dụ: order.vnpayTransactionNo = paymentData.transactionNo)
       await manager.save(order);
       return order;
@@ -323,12 +361,86 @@ export class OrdersService {
       attributes: variant.attributes,
       quantity: quantityMap[variant.id] ?? 0,
       price: variant.price,
+      image: variant.product.thumbnailUrl,
+      oldPrice: variant.product.oldPrice
+        ? Number(variant.product.oldPrice)
+        : null,
       // thông tin product (rút gọn theo nhu cầu)
     }));
 
     // const totalItems = items.reduce((sum, i) => sum + i.quantity, 0);
 
     return items;
+  }
+
+  async updateShoppingCart(
+    userId: string,
+    variantId: string,
+    quantity: number,
+  ) {
+    const cartKey = `cart:${userId}`;
+
+    // 1. Validate quantity
+    if (!Number.isInteger(quantity) || quantity < 1) {
+      throw new BadRequestException('Số lượng không hợp lệ!');
+    }
+
+    // 2. Check variant có tồn tại không
+    const variant = await this.variantRepo.findOne({
+      where: { id: variantId },
+    });
+    if (!variant) {
+      throw new NotFoundException('Variant không tồn tại!');
+    }
+
+    // 3. Check variant có trong giỏ không
+    const currentQty = await this.redisService.hget(cartKey, variantId);
+    if (!currentQty) {
+      throw new NotFoundException('Sản phẩm không có trong giỏ hàng!');
+    }
+
+    // 4. Check tồn kho
+    if (variant.stock < quantity) {
+      throw new BadRequestException(
+        `Chỉ còn ${variant.stock} sản phẩm trong kho!`,
+      );
+    }
+
+    // 5. Update quantity
+    await this.redisService.hset(cartKey, variantId, String(quantity));
+
+    return {
+      message: 'Cập nhật giỏ hàng thành công!',
+      variantId,
+      quantity,
+    };
+  }
+
+  async removeShoppingCart(userId: string, variantId: string) {
+    const cartKey = `cart:${userId}`;
+
+    // 1. Check variant có trong giỏ không
+    const exists = await this.redisService.hget(cartKey, variantId);
+    if (!exists) {
+      throw new NotFoundException('Sản phẩm không có trong giỏ hàng!');
+    }
+
+    // 2. Xóa field khỏi hash
+    await this.redisService.hdel(cartKey, variantId);
+
+    // 3. Nếu giỏ trống → xóa key luôn (tiết kiệm Redis)
+    const remaining = await this.redisService.hlen(cartKey);
+    if (remaining === 0) {
+      await this.redisService.del(cartKey);
+    }
+
+    return { message: 'Đã xóa sản phẩm khỏi giỏ hàng!' };
+  }
+
+  async clearShoppingCart(userId: string) {
+    const cartKey = `cart:${userId}`;
+    await this.redisService.del(cartKey);
+    return { message: 'Đã xóa toàn bộ giỏ hàng!' };
   }
 
   async testRaceConditon(id: string, quantity: number) {

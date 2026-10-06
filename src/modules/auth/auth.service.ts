@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   UnauthorizedException,
@@ -15,6 +16,7 @@ import { TokenService } from './services/token.service';
 import { Session } from '../users/entities/session.entity';
 import { CookieService } from './services/cookie.service';
 import { Provider } from '../../common/enums/provider.enum';
+import { ConfigService } from '@nestjs/config';
 @Injectable()
 export class AuthService {
   constructor(
@@ -26,7 +28,16 @@ export class AuthService {
     private readonly userService: UserService,
     private readonly tokenService: TokenService,
     private readonly cookieService: CookieService,
+    private readonly configService: ConfigService,
   ) {}
+  async me(userId: string) {
+    const user = await this.userRepo.findOneBy({ id: userId });
+    if (!user) {
+      throw new BadRequestException('Không tìm thấy người dùng');
+    }
+    return user;
+  }
+
   async sendOtp(email: string, res: any) {
     await this.userService.emailExist(email);
     //Gửi OTP
@@ -73,31 +84,43 @@ export class AuthService {
 
   async handleGoogleLogin(userData: any, res: any) {
     let user = await this.userRepo.findOneBy({ email: userData.email });
+
     if (user) {
-      user.provider = Provider.GOOGLE;
-      res.message = 'Liên kết Google thành công!';
-      return '';
+      // 👇 User đã tồn tại → vẫn phải set token + session + redirect
+      if (user.provider !== Provider.GOOGLE) {
+        user.provider = Provider.GOOGLE;
+        await this.userRepo.save(user);
+      }
+    } else {
+      // User mới → tạo mới
+      user = this.userRepo.create({
+        firstName: userData.firstName,
+        lastName: userData.lastName,
+        email: userData.email,
+        provider: Provider.GOOGLE,
+      });
+      user = await this.userRepo.save(user);
     }
-    //Đăng kí với google
-    user = this.userRepo.create({
-      firstName: userData.firstName,
-      lastName: userData.lastName,
-      email: userData.email,
-      provider: Provider.GOOGLE,
-    });
-    user = await this.userRepo.save(user);
+
+    // 👇 Tạo token (dùng chung cho cả 2 nhánh)
     const payload = this.tokenService.createAuthPayload(user);
     const accessToken = this.tokenService.createAccessToken(payload);
     const refreshToken = this.tokenService.createRefreshToken(payload);
 
     const session = this.sessionRepo.create({
-      user: user, // Gán user object
-      refreshToken: refreshToken,
+      user,
+      refreshToken,
     });
     await this.sessionRepo.save(session);
+
+    // 👇 Set cookie (dùng chung)
     this.cookieService.setAuthCookies(res, accessToken, refreshToken);
-    res.message = 'Đăng nhập thành công!';
-    return accessToken;
+
+    // 👇 Redirect (dùng chung)
+    const feUrl =
+      this.configService.get<string>('FE_URL') || 'http://localhost:3000';
+
+    return res.redirect(302, feUrl);
   }
 
   async refreshToken(refreshToken: string, res: any) {

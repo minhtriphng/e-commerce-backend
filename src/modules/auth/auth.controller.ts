@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Patch,
   Post,
   Req,
   Res,
@@ -16,6 +17,7 @@ import { RolesGuard } from '../../common/guards/roles.guard';
 import { UserRole } from '../../common/enums/user.enum';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { UserService } from '../users/user.service';
+import { UpdateUserDto } from './dto/update-user.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -44,6 +46,25 @@ export class AuthController {
   validateJwt(@Req() req: any) {
     return req.user;
   }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Get('me')
+  me(@Req() req: any) {
+    return this.authService.me(req.user.userId);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Get('phone')
+  getPhone(@Req() req: any) {
+    return this.userService.getPhone(req.user.userId);
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Patch()
+  updateUser(@Req() req: any, @Body() body: UpdateUserDto) {
+    return this.userService.updateUser(req.user.userId, body);
+  }
+
   @Post('send-otp')
   sendOtp(@Body() body: SendOtpDto, @Res({ passthrough: true }) res: Response) {
     return this.authService.sendOtp(body.email, res);
@@ -75,10 +96,7 @@ export class AuthController {
   // Bước 2: callback (sau khi login gg thành công) GET /auth/google/callback?code=xxxxx
   @Get('google/callback')
   @UseGuards(AuthGuard('google')) // passport tự động lấy code gửi lên gg để đổi access/refresh token/ và profile và chạy hàm validate
-  async googleCallback(
-    @Req() req: any,
-    @Res({ passthrough: true }) response: Response,
-  ) {
+  async googleCallback(@Req() req: any, @Res() response: Response) {
     return this.authService.handleGoogleLogin(req.user, response);
   }
 

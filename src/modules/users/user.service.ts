@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   UnauthorizedException,
@@ -10,6 +11,7 @@ import { User } from './entities/user.entity';
 import { RateLimitService } from '../../common/services/rate-limit.service';
 import { RedisService } from '../redis/redis.service';
 import { MailService } from '../mail/mail.service';
+import { UpdateUserDto } from '../auth/dto/update-user.dto';
 @Injectable()
 export class UserService {
   constructor(
@@ -54,5 +56,38 @@ export class UserService {
     }
     await this.redisService.del(`login:${email}`);
     return user;
+  }
+
+  async getPhone(userId: string) {
+    const user = await this.userRepo.findOneBy({ id: userId });
+    if (!user) {
+      throw new BadRequestException('Không tìm thấy người dùng!');
+    }
+    return user.phone;
+  }
+
+  async updateUser(userId: string, userData: UpdateUserDto) {
+    const user = await this.userRepo.findOneBy({ id: userId });
+    if (!user) {
+      throw new BadRequestException('Không tìm thấy người dùng!');
+    }
+
+    if (userData.address !== undefined) {
+      user.address = userData.address;
+    }
+
+    if (userData.firstName !== undefined) {
+      user.firstName = userData.firstName;
+    }
+
+    if (userData.lastName !== undefined) {
+      user.lastName = userData.lastName;
+    }
+
+    if (userData.phone !== undefined) {
+      user.phone = userData.phone;
+    }
+
+    await this.userRepo.save(user);
   }
 }
