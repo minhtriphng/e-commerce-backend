@@ -1,6 +1,7 @@
 services:
   app:
-    build: . # build từ Dockerfile ở thư mục hiện tại(nếu chưa có image)
+    #build: . # build từ source(Dockerfile ở thư mục hiện tại(nếu chưa có image))
+    image: ghcr.io/minhtriphng/e-commerce-backend:71ded0a100969381e5aafd8e84b3ebdc13176c29
     container_name: app-ecommerce
     restart: always
     # Bỏ ports ở đây — app chỉ lắng nghe trong network nội bộ
