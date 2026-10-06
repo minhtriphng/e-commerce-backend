@@ -1,11 +1,5 @@
 // src/modules/audit/entities/stock-audit-log.entity.ts
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  Index,
-} from 'typeorm';
+import { Entity, Column, CreateDateColumn, Index } from 'typeorm';
 import { BaseEntity } from '../../../common/entities/base.entity';
 
 @Entity('stock_audit_logs')

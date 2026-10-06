@@ -2,7 +2,6 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
-  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, DataSource, LessThan } from 'typeorm';
@@ -15,12 +14,10 @@ import {
   PaymentStatus,
   Status,
 } from '../../common/enums/status.enum';
-import { setTimeout as sleep } from 'node:timers/promises';
 import { Race } from '../../common/entities/race.entity';
 import { RedisService } from '../redis/redis.service';
 import { CACHE_OPTIONS } from '../../common/constants/cache.constant';
 import { User } from '../users/entities/user.entity';
-import { randomUUID } from 'node:crypto';
 import { PaymentService } from '../payment/payment.service';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { StructuredLogger } from '../../common/utils/logger.util';

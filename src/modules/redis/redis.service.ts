@@ -54,7 +54,7 @@ export class RedisService {
   async hincrby(key: string, field: string, increment: number) {
     return this.redis.hincrby(key, field, increment);
   }
-  async hexists(key: string, field: string) {
+  async hexists(key: string) {
     return this.redis.exists(key); // hoặc this.redis.hexists (ioredis có)
   }
   async hlen(key: string) {

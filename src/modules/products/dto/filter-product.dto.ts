@@ -1,4 +1,4 @@
-import { IsOptional, IsNumber, IsString, IsObject } from 'class-validator';
+import { IsOptional, IsString, IsObject } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class FilterProductDto {

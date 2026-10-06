@@ -2,13 +2,11 @@ import {
   IsString,
   IsNumber,
   IsOptional,
-  IsUrl,
   IsArray,
   ValidateNested,
   Min,
   IsObject,
   IsNotEmpty,
-  ArrayMaxSize,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { IsAlphaOnly } from '../../../common/decorators/is-alpha.decorator';

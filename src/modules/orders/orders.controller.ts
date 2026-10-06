@@ -16,7 +16,7 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { AuthGuard } from '@nestjs/passport';
 import { AddCartDto } from './dto/add-cart.dto';
 import { IdempotencyInterceptor } from '../../interceptors/idempotency.interceptor';
-import { PaymentMethod } from '../../common/enums/status.enum';
+
 import { UpdateCartDto } from './dto/update-cart.dto';
 
 @Controller('orders')

@@ -30,7 +30,7 @@ export class PaymentController {
         // Trường hợp duplicate không có status rõ ràng
         vnpStatus = query['vnp_ResponseCode'] === '00' ? 'success' : 'failed';
       }
-    } catch (err) {
+    } catch {
       // verify fail (chữ ký sai, không tìm thấy order, amount mismatch...)
       vnpStatus = 'error';
       orderId = query['vnp_TxnRef'] || null;

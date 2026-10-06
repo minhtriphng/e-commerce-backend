@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-} from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { RedisService } from '../../redis/redis.service';
 import { RateLimitService } from '../../../common/services/rate-limit.service';
 import { MailService } from '../../mail/mail.service';

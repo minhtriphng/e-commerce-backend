@@ -1,4 +1,4 @@
-import { Body, Controller } from '@nestjs/common';
+import { Controller } from '@nestjs/common';
 
 @Controller('mail')
 export class MailController {

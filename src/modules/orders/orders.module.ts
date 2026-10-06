@@ -7,7 +7,6 @@ import { OrderItem } from './entities/order-item.entity';
 import { ProductVariant } from '../products/entities/product-variant.entity';
 import { Race } from '../../common/entities/race.entity';
 import { RedisService } from '../redis/redis.service';
-import { PaymentService } from '../payment/payment.service';
 import { PaymentModule } from '../payment/payment.module';
 import { AuditService } from '../audit/audit.service';
 import { StockAuditLog } from '../audit/entities/stock-audit-log.entity';

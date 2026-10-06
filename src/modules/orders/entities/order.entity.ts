@@ -1,10 +1,4 @@
-import {
-  Entity,
-  Column,
-  OneToMany,
-  CreateDateColumn,
-  UpdateDateColumn,
-} from 'typeorm';
+import { Entity, Column, OneToMany, CreateDateColumn } from 'typeorm';
 import { BaseEntity } from '../../../common/entities/base.entity';
 import {
   PaymentMethod,
