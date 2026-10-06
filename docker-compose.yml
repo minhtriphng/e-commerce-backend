@@ -1,6 +1,6 @@
 services:
   app:
-    build: . # build từ Dockerfile ở thư mục hiện tại
+    build: . # build từ Dockerfile ở thư mục hiện tại(nếu chưa có image)
     container_name: app-ecommerce
     restart: always
     # Bỏ ports ở đây — app chỉ lắng nghe trong network nội bộ
